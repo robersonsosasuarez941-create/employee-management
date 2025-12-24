@@ -1899,7 +1899,29 @@
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzWtjLL9CdICbF014nWgHH6Q5p9HdXBbowlcG7yg_0whvJL2fZBL-tXNSearyJsAKD6/exec';
         
         let currentBreak = null;
-        let timerInterval = null;
+
+// ==================== 修复缺失的函数 ====================
+function showOnDuty() {
+    if (!event || !event.target) return;
+    filterEmployees('all');
+    document.querySelectorAll('#breakSection .filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+}
+
+function showOffDuty() {
+    if (!event || !event.target) return;
+    const currentData = [...employeeData];
+    filteredEmployeeData = currentData.filter(emp => emp.statusClass === 'onBreak');
+    renderEmployeeCards();
+    document.querySelectorAll('#breakSection .filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+}
+
+let timerInterval = null;
         let currentLeaveRowId = null;
         let employeeData = [];
         let filteredEmployeeData = [];
@@ -2217,7 +2239,7 @@
                 });
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000);
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
                 
                 const response = await fetch(url.toString(), {
                     method: 'GET',
