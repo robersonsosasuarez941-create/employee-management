@@ -1902,23 +1902,21 @@
 
 // ==================== 修复缺失的函数 ====================
 function showOnDuty() {
-    if (!event || !event.target) return;
     filterEmployees('all');
-    document.querySelectorAll('#breakSection .filter-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
 }
 
 function showOffDuty() {
-    if (!event || !event.target) return;
-    const currentData = [...employeeData];
-    filteredEmployeeData = currentData.filter(emp => emp.statusClass === 'onBreak');
-    renderEmployeeCards();
-    document.querySelectorAll('#breakSection .filter-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
+    // 如果当前有员工数据，显示状态为离岗的员工
+    if (employeeData && employeeData.length > 0) {
+        const onBreakEmployees = employeeData.filter(emp => 
+            emp.status && emp.status.includes('离岗中')
+        );
+        
+        if (onBreakEmployees.length > 0) {
+            filteredEmployeeData = onBreakEmployees;
+            renderEmployeeCards();
+        }
+    }
 }
 
 let timerInterval = null;
@@ -2603,29 +2601,27 @@ let timerInterval = null;
                 
                 // 格式化时间显示
                 const formatTimeForDisplay = (timeStr) => {
-                    if (!timeStr || timeStr === '未打卡') return currentLanguage === 'zh' ? '未打卡' : 'Not clocked';
-                    
-                    // 如果包含日期部分，只取时间
-                    if (timeStr.includes(' ')) {
-                        const parts = timeStr.split(' ');
-                        if (parts.length > 1) {
-                            const timePart = parts[1];
-                            // 检查是否是有效时间格式
-                            const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]/;
-                            if (timeRegex.test(timePart)) {
-                                return timePart;
-                            }
-                        }
-                    }
-                    
-                    // 直接检查是否是纯时间格式
-                    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]/;
-                    if (timeRegex.test(timeStr)) {
-                        return timeStr;
-                    }
-                    
-                    return timeStr;
-                };
+    if (!timeStr || timeStr === '未打卡' || timeStr === '-' || timeStr.includes('1899')) {
+        return currentLanguage === 'zh' ? '未打卡' : 'Not clocked';
+    }
+    
+    // 如果是完整日期时间格式：2025-12-24 11:01:51
+    if (timeStr.includes(' ')) {
+        const parts = timeStr.split(' ');
+        const datePart = parts[0];  // 2025-12-24
+        const timePart = parts[1];  // 11:01:51
+        
+        // 提取月份和日期，去掉年份
+        const dateParts = datePart.split('-');
+        if (dateParts.length === 3) {
+            const month = dateParts[1];  // 12
+            const day = dateParts[2];    // 24
+            return `${month}-${day} ${timePart}`;  // 12-24 11:01:51
+        }
+    }
+    
+    return timeStr; // 如果不是标准格式，原样返回
+};
                 
                 // 添加离岗统计显示
                 const breakStatsHTML = employee.breakCount > 0 ? `
@@ -2754,7 +2750,18 @@ let timerInterval = null;
             }
             
             showFloatingAlert(`${employeeName} ${currentLanguage === 'zh' ? '开始离岗...' : 'starting break...'}`, 'info');
-            
+                // 保存离岗状态到本地存储
+    const breakData = {
+        name: employeeName,
+        reason: reason,
+        startTime: new Date().toISOString(),
+        timeLimit: reason === '小便' ? 5 : 
+                  reason === '大便' ? 10 : 
+                  reason === '抽烟' ? 5 : 
+                  reason === '周五祈祷' ? 30 : 15
+    };
+    
+    localStorage.setItem('currentBreak', JSON.stringify(breakData));
             const result = await callAPI('startBreak', { 
                 breakName: employeeName, 
                 breakReason: reason 
@@ -2798,25 +2805,25 @@ let timerInterval = null;
             }
         }
 
-        function startTimer() {
-            if (timerInterval) clearInterval(timerInterval);
+        function startTimer(initialSeconds = 0) {
+    if (timerInterval) clearInterval(timerInterval);
+    
+    let seconds = initialSeconds;
+    timerInterval = setInterval(() => {
+        seconds++;
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        const timerElement = document.getElementById('timer');
+        if (timerElement) {
+            timerElement.textContent = 
+                `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
             
-            let seconds = 0;
-            timerInterval = setInterval(() => {
-                seconds++;
-                const minutes = Math.floor(seconds / 60);
-                const remainingSeconds = seconds % 60;
-                const timerElement = document.getElementById('timer');
-                if (timerElement) {
-                    timerElement.textContent = 
-                        `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-                    
-                    if (currentBreak && minutes > currentBreak.timeLimit) {
-                        timerElement.style.color = '#ff6b6b';
-                    }
-                }
-            }, 1000);
+            if (currentBreak && minutes > currentBreak.timeLimit) {
+                timerElement.style.color = '#ff6b6b';
+            }
         }
+    }, 1000);
+}
 
         async function endBreak() {
             if (!currentBreak || !currentBreak.name) {
@@ -2829,6 +2836,8 @@ let timerInterval = null;
             const result = await callAPI('endBreak', { endName: currentBreak.name });
             
             if (result && result.success) {
+    // 清除本地存储的离岗状态
+    localStorage.removeItem('currentBreak');
                 clearInterval(timerInterval);
                 timerInterval = null;
                 
@@ -3663,30 +3672,75 @@ let timerInterval = null;
             }, 120000); // 2分钟
         }
 
-        // ==================== 初始化函数 ====================
-        function init() {
-            updateDateTime();
-            setInterval(updateDateTime, 1000);
+      // ==================== 初始化函数 ====================
+function init() {
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+    
+    // 恢复离岗状态（保留这一行）
+    restoreBreakStatus();
+    
+    setTimeout(() => {
+        loadAllData(false);
+        testConnection();
+        startAutoRefresh();
+        updateUIWithLanguage();
+    }, 1000);
+    
+    const leaveReason = document.getElementById('leaveReason');
+    if (leaveReason) {
+        leaveReason.addEventListener('input', updateCharCount);
+    }
+    
+    const filterButtons = document.querySelectorAll('.filter-buttons .filter-btn');
+    if (filterButtons.length > 0) {
+        filterButtons[0].classList.add('active');
+    }
+}
+
+// 恢复离岗状态的函数
+function restoreBreakStatus() {
+    try {
+        const savedBreak = localStorage.getItem('currentBreak');
+        if (savedBreak) {
+            const breakData = JSON.parse(savedBreak);
+            const startTime = new Date(breakData.startTime);
+            const now = new Date();
+            const elapsedMinutes = Math.floor((now - startTime) / (1000 * 60));
             
-            setTimeout(() => {
-                loadAllData(false);
-                testConnection();
-                startAutoRefresh();
-                updateUIWithLanguage();
-            }, 1000);
-            
-            const leaveReason = document.getElementById('leaveReason');
-            if (leaveReason) {
-                leaveReason.addEventListener('input', updateCharCount);
-            }
-            
-            const filterButtons = document.querySelectorAll('.filter-buttons .filter-btn');
-            if (filterButtons.length > 0) {
-                filterButtons[0].classList.add('active');
+            // 如果离岗时间未超过限制+5分钟缓冲，恢复计时器
+            if (elapsedMinutes < breakData.timeLimit + 5) {
+                currentBreak = breakData;
+                
+                const breakReasonDisplay = document.getElementById('breakReasonDisplay');
+                const timeLimitDisplay = document.getElementById('timeLimitDisplay');
+                const timerDisplay = document.getElementById('timerDisplay');
+                
+                if (breakReasonDisplay) {
+                    breakReasonDisplay.textContent = currentLanguage === 'zh' ? breakData.reason : 
+                        (breakData.reason === '小便' ? 'Urinate' : 
+                         breakData.reason === '大便' ? 'Defecate' : 
+                         breakData.reason === '抽烟' ? 'Smoke' : 
+                         breakData.reason === '周五祈祷' ? 'Friday Prayer' : 'Other');
+                }
+                
+                if (timeLimitDisplay) timeLimitDisplay.textContent = breakData.timeLimit;
+                if (timerDisplay) timerDisplay.style.display = 'block';
+                
+                // 恢复计时器
+                let elapsedSeconds = Math.floor((now - startTime) / 1000);
+                startTimer(elapsedSeconds);
+                
+                showFloatingAlert(`${breakData.name} ${currentLanguage === 'zh' ? '检测到未结束的离岗，已恢复计时' : 'Unfinished break detected, timer restored'}`, 'info');
+            } else {
+                // 离岗时间已超时，清除存储
+                localStorage.removeItem('currentBreak');
             }
         }
+    } catch (error) {
+        console.error('恢复离岗状态失败:', error);
+        localStorage.removeItem('currentBreak');
+    }
+}
 
-        window.onload = init;
-    </script>
-</body>
-</html>
+window.onload = init;
